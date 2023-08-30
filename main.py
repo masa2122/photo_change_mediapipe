@@ -1,6 +1,7 @@
 import pyfirmata
 from time import sleep
 
+import math
 import mediapipe as mp
 import cv2
 import math
@@ -18,7 +19,7 @@ def variation(before:int, after:list):
         after_mean = sum(differences) / len(differences)
         difference_x = before - after_mean
         # 動かした距離で判定
-        if -50 > difference_x:
+        if -30 > difference_x:
             return 1
     return None
 
@@ -53,14 +54,14 @@ def main():
     
     before_INDEX_FINGER_TIP_x = 0
     INDEX_FINGER_TIP_x = []
-    # 回数を数えるカウンター
-    counter = 0
     # 動きをためておく変数
     stock = 0
     # 写真のカウンター
     phot_num = 0
     # onofスイッチ
     switch = 0
+    before_phot_num=999
+    stock_num = 0
     with mp_hands.Hands(
         model_complexity=0,
         min_detection_confidence=0.5,
@@ -68,14 +69,12 @@ def main():
         
         while cap.isOpened():
             # 画像のパスを取り出す
-            if (counter == 0) or (counter >= 100):
-                path_list = []
-                for item in os.listdir(path):
-                    match_object = pattern.match(item)
-                    if match_object:
-                        true_path = match_object.group()
-                        path_list.append(true_path)
-                counter = 1
+            path_list = []
+            for item in os.listdir(path):
+                match_object = pattern.match(item)
+                if match_object:
+                    true_path = match_object.group()
+                    path_list.append(true_path)
             
             
             success, image = cap.read()
@@ -102,9 +101,41 @@ def main():
 
                     # 座標を貯める
                     index_finger_landmark = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                    INDEX_FINGER_TIP_x.append(int(index_finger_landmark.x * w))
+                    index_x = int(index_finger_landmark.x * w)
+                    index_y = int(index_finger_landmark.y * h)
+                    INDEX_FINGER_TIP_x.append(index_x)
+                    # 人差し指と中指の先端座標を貯める
+                    middle_finger_landmark = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+                    middle_x = int(middle_finger_landmark.x * w)
+                    middle_y = int(middle_finger_landmark.y * h)
                     
-                    if stock > 7:
+                    
+                    # ユークリッド距離
+                    if abs(math.sqrt((middle_x - index_x)**2 + (middle_y - index_y)**2)) < 45:
+                        print('ポーズ画面')
+                        btn_x = int(w * (1/10))
+                        image[height:, :btn_x] = [255, 255, 255]
+                        # タッチしたら消す
+                        if (abs(math.sqrt((middle_x - index_x)**2 + (middle_y - index_y)**2)) < 40) and (btn_x > middle_x) and (btn_x > index_x):
+                            # とどまっている時間
+                            
+                            if before_stock==1:
+                                stock_num += 1
+                            before_stock = 1
+                            print(stock_num)
+                            if stock_num > 20:
+                                os.remove(os.path.join(path, path_list[phot_num]))
+                                stock_num = 0
+                                # 番号変更
+                                if len(path_list)-1 > phot_num:
+                                    phot_num += 1
+                                else:
+                                    phot_num = 0
+                                print("削除")
+                        else:
+                            before_stock = 0
+                            stock_num = 0
+                    if stock > 5:
                         # 写真を他のにする処理
                         # 人差し指
                         num = variation(before_INDEX_FINGER_TIP_x,INDEX_FINGER_TIP_x)
@@ -125,7 +156,7 @@ def main():
                     pin = pin_objects[pinname]
                     pin.write(0)
                 switch=0
-            # 見ている写真の場所を教えるLEDの数を変える
+            # 見ている写真の場所を教えるLEDの数を変える(数によっては変な付き方をしてしまう)
             if 0 <= phot_num <= (len(path_list)-1)*0.1:
                 pin = pin_objects[PINNAMES[0]]
                 pin.write(1)
@@ -180,7 +211,6 @@ def main():
             if cv2.waitKey(5) & 0xFF == 27:
                 break
             
-            counter += 1
             stock += 1
     cap.release()
 
